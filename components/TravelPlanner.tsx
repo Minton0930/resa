@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   Minus,
   Plus,
+  Clock,
 } from "lucide-react";
 
 function todayPlus(days: number) {
@@ -31,10 +32,18 @@ function todayPlus(days: number) {
   return d.toISOString().slice(0, 10);
 }
 
+function formatFlightTime(hours: number) {
+  const h = Math.floor(hours);
+  const m = Math.round((hours - h) * 60);
+  return m > 0 ? `${h}h ${m}min` : `${h}h`;
+}
+
 export function TravelPlanner() {
+  const defaultCountry = getCountry("ES") ?? countries[0];
+
   const [departureCode, setDepartureCode] = useState(departureCities[0].code);
-  const [countryCode, setCountryCode] = useState(countries[0].code);
-  const [cityId, setCityId] = useState(countries[0].cities[0].id);
+  const [countryCode, setCountryCode] = useState(defaultCountry.code);
+  const [cityId, setCityId] = useState(defaultCountry.cities[0].id);
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
   const [departDate, setDepartDate] = useState(todayPlus(30));
@@ -45,7 +54,17 @@ export function TravelPlanner() {
 
   const country = getCountry(countryCode)!;
   const cities = getCitiesForCountry(countryCode);
-  const hotels = getHotelsForCity(cityId);
+  const hotels = getHotelsForCity(countryCode, cityId);
+
+  const regions = useMemo(() => {
+    const map = new Map<string, typeof countries>();
+    for (const c of countries) {
+      const list = map.get(c.region) ?? [];
+      list.push(c);
+      map.set(c.region, list);
+    }
+    return Array.from(map.entries());
+  }, []);
 
   const nights = useMemo(() => {
     const d1 = new Date(departDate);
@@ -123,18 +142,28 @@ export function TravelPlanner() {
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">Land</label>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Land ({countries.length} resmål)
+                </label>
                 <select
                   value={countryCode}
                   onChange={(e) => handleCountryChange(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
                 >
-                  {countries.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.flag} {c.name}
-                    </option>
+                  {regions.map(([region, list]) => (
+                    <optgroup key={region} label={region}>
+                      {list.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.flag} {c.name}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
+                <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-slate-500">
+                  <Clock size={12} className="text-brand-500" />
+                  Flygtid ca {formatFlightTime(country.flightHours)} (en väg)
+                </p>
               </div>
 
               <div className="sm:col-span-2">
@@ -240,28 +269,41 @@ export function TravelPlanner() {
                       setSelectedHotelId(hotel.id);
                       setBooked(false);
                     }}
-                    className={`rounded-xl border p-4 text-left transition-colors ${
+                    className={`overflow-hidden rounded-xl border text-left transition-colors ${
                       (selectedHotelId ?? hotels[0]?.id) === hotel.id
                         ? "border-brand-500 bg-brand-50 shadow-glow"
                         : "border-slate-200 bg-white hover:border-brand-300"
                     }`}
                   >
-                    <div className="mb-1 flex items-center justify-between">
-                      <span className="text-2xl">{hotel.emoji}</span>
-                      <span className="flex items-center gap-0.5 text-xs font-bold text-amber-500">
-                        {Array.from({ length: hotel.stars }).map((_, i) => (
-                          <Star key={i} size={12} fill="currentColor" />
-                        ))}
+                    <div className="relative h-32 w-full bg-slate-100">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={hotel.image}
+                        alt={hotel.name}
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                      <span className="absolute right-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-lg leading-none shadow">
+                        {hotel.emoji}
                       </span>
                     </div>
-                    <p className="font-extrabold text-slate-900">{hotel.name}</p>
-                    <p className="mb-2 flex items-center gap-1 text-xs font-medium text-slate-500">
-                      {hotel.beachfront && <Waves size={12} className="text-brand-500" />}
-                      Betyg {hotel.rating.toFixed(1)}/10 · {hotel.amenities.join(", ")}
-                    </p>
-                    <p className="text-sm font-bold text-brand-700">
-                      {formatSEK(hotel.pricePerNightPerPerson)} / person / natt
-                    </p>
+                    <div className="p-4">
+                      <div className="mb-1 flex items-center justify-between">
+                        <p className="font-extrabold text-slate-900">{hotel.name}</p>
+                        <span className="flex shrink-0 items-center gap-0.5 text-xs font-bold text-amber-500">
+                          {Array.from({ length: hotel.stars }).map((_, i) => (
+                            <Star key={i} size={12} fill="currentColor" />
+                          ))}
+                        </span>
+                      </div>
+                      <p className="mb-2 flex items-center gap-1 text-xs font-medium text-slate-500">
+                        {hotel.beachfront && <Waves size={12} className="text-brand-500" />}
+                        Betyg {hotel.rating.toFixed(1)}/10 · {hotel.amenities.join(", ")}
+                      </p>
+                      <p className="text-sm font-bold text-brand-700">
+                        {formatSEK(hotel.pricePerNightPerPerson)} / person / natt
+                      </p>
+                    </div>
                   </button>
                 ))}
               {hotels.filter((h) => h.boardOptions.includes(board)).length === 0 && (
@@ -287,6 +329,10 @@ export function TravelPlanner() {
                   </p>
                   <p className="text-slate-500">
                     Från {departureCities.find((d) => d.code === departureCode)?.city}
+                  </p>
+                  <p className="flex items-center gap-1 text-slate-500">
+                    <Clock size={12} className="text-brand-500" />
+                    Flygtid ca {formatFlightTime(country.flightHours)} (en väg)
                   </p>
                   <p className="text-slate-500">
                     {departDate} → {returnDate} ({nights} nätter)
