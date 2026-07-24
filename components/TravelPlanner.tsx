@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BoardType,
   boardLabels,
@@ -24,7 +24,12 @@ import {
   Minus,
   Plus,
   Clock,
+  Wifi,
+  WifiOff,
+  Loader2,
 } from "lucide-react";
+
+type HotelSource = "live" | "not_connected" | "error" | "loading";
 
 function todayPlus(days: number) {
   const d = new Date();
@@ -54,7 +59,54 @@ export function TravelPlanner() {
 
   const country = getCountry(countryCode)!;
   const cities = getCitiesForCountry(countryCode);
-  const hotels = getHotelsForCity(countryCode, cityId);
+  const fallbackHotels = getHotelsForCity(countryCode, cityId);
+
+  const [liveHotels, setLiveHotels] = useState<Hotel[] | null>(null);
+  const [hotelSource, setHotelSource] = useState<HotelSource>("loading");
+
+  const city = cities.find((c) => c.id === cityId);
+
+  useEffect(() => {
+    if (!city) return;
+    let cancelled = false;
+    setHotelSource("loading");
+    const timer = setTimeout(() => {
+      const url = new URL("/api/hotels", window.location.origin);
+      url.searchParams.set("cityName", city.name);
+      url.searchParams.set("countryName", country.name);
+      url.searchParams.set("countryCode", country.code);
+      url.searchParams.set("cityId", city.id);
+      url.searchParams.set("checkin", departDate);
+      url.searchParams.set("checkout", returnDate);
+      url.searchParams.set("adults", String(adults));
+
+      fetch(url.toString())
+        .then((res) => res.json())
+        .then((json: { source: HotelSource; hotels: Hotel[] }) => {
+          if (cancelled) return;
+          if (json.source === "live" && json.hotels.length > 0) {
+            setLiveHotels(json.hotels);
+            setHotelSource("live");
+          } else {
+            setLiveHotels(null);
+            setHotelSource(json.source === "live" ? "not_connected" : json.source);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setLiveHotels(null);
+            setHotelSource("error");
+          }
+        });
+    }, 400);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [countryCode, cityId, departDate, returnDate, adults, city, country.code, country.name]);
+
+  const hotels = liveHotels ?? fallbackHotels;
 
   const regions = useMemo(() => {
     const map = new Map<string, typeof countries>();
@@ -256,9 +308,23 @@ export function TravelPlanner() {
 
           {/* Hotels */}
           <section className="card p-5">
-            <h2 className="mb-4 text-lg font-extrabold text-slate-900">
-              Hotell i {cities.find((c) => c.id === cityId)?.name}
-            </h2>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-extrabold text-slate-900">
+                Hotell i {cities.find((c) => c.id === cityId)?.name}
+              </h2>
+              <HotelSourceBadge source={hotelSource} />
+            </div>
+            {hotelSource === "not_connected" && (
+              <p className="mb-3 rounded-lg bg-amber-50 p-2.5 text-xs font-semibold text-amber-700">
+                Visar exempeldata. Koppla in Booking.com-API:et (RAPIDAPI_KEY) för att visa riktiga hotell med
+                riktiga bilder — se README.
+              </p>
+            )}
+            {hotelSource === "error" && (
+              <p className="mb-3 rounded-lg bg-red-50 p-2.5 text-xs font-semibold text-red-700">
+                Kunde inte hämta riktiga hotell just nu — visar exempeldata istället.
+              </p>
+            )}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {hotels
                 .filter((h) => h.boardOptions.includes(board))
@@ -298,7 +364,8 @@ export function TravelPlanner() {
                       </div>
                       <p className="mb-2 flex items-center gap-1 text-xs font-medium text-slate-500">
                         {hotel.beachfront && <Waves size={12} className="text-brand-500" />}
-                        Betyg {hotel.rating.toFixed(1)}/10 · {hotel.amenities.join(", ")}
+                        Betyg {hotel.rating.toFixed(1)}/10
+                        {hotel.amenities.length > 0 ? ` · ${hotel.amenities.join(", ")}` : ""}
                       </p>
                       <p className="text-sm font-bold text-brand-700">
                         {formatSEK(hotel.pricePerNightPerPerson)} / person / natt
@@ -424,5 +491,27 @@ function Stepper({
         <Plus size={14} />
       </button>
     </div>
+  );
+}
+
+function HotelSourceBadge({ source }: { source: HotelSource }) {
+  if (source === "loading") {
+    return (
+      <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">
+        <Loader2 size={12} className="animate-spin" /> Hämtar hotell…
+      </span>
+    );
+  }
+  if (source === "live") {
+    return (
+      <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">
+        <Wifi size={12} /> Live från Booking.com
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">
+      <WifiOff size={12} /> Exempeldata
+    </span>
   );
 }
